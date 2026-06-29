@@ -8,6 +8,7 @@ const likesRoutes = require('./routes/likes');
 const followsRoutes = require('./routes/follows');
 const commentsRoutes = require('./routes/comments');
 const messagesRoutes = require('./routes/messages');
+const usersRoutes = require('./routes/users');
 
 const app = express();
 
@@ -20,6 +21,7 @@ app.use('/api/posts/:postId/like', likesRoutes);
 app.use('/api/posts/:postId/comments', commentsRoutes);
 app.use('/api/follows', followsRoutes);
 app.use('/api/messages', messagesRoutes);
+app.use('/api/users', usersRoutes);
 
 app.get('/', (req, res) => {
   res.json({ message: 'API réseau social en ligne' });

@@ -27,16 +27,63 @@ router.post('/', requireAuth, async (req, res) => {
   }
 });
 
-// Lister les posts (fil d'actualité simple, tous les posts triés par date)
+// Lister les posts (page "Explorer", tous les posts triés par date)
 router.get('/', async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
+  const offset = parseInt(req.query.offset, 10) || 0;
+
   try {
     const result = await pool.query(
       `SELECT posts.id, posts.content, posts.image_url, posts.created_at,
-              users.id AS author_id, users.username AS author_username, users.avatar_url AS author_avatar
+              users.id AS author_id, users.username AS author_username, users.avatar_url AS author_avatar,
+              users.is_verified AS author_is_verified,
+              COALESCE(likes_count.count, 0) AS likes_count,
+              COALESCE(comments_count.count, 0) AS comments_count
        FROM posts
        JOIN users ON users.id = posts.user_id
+       LEFT JOIN (
+         SELECT post_id, COUNT(*) AS count FROM likes GROUP BY post_id
+       ) likes_count ON likes_count.post_id = posts.id
+       LEFT JOIN (
+         SELECT post_id, COUNT(*) AS count FROM comments GROUP BY post_id
+       ) comments_count ON comments_count.post_id = posts.id
        ORDER BY posts.created_at DESC
-       LIMIT 50`
+       LIMIT $1 OFFSET $2`,
+      [limit, offset]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// Fil d'actualité : posts de soi-même + des personnes qu'on suit
+router.get('/feed', requireAuth, async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
+  const offset = parseInt(req.query.offset, 10) || 0;
+
+  try {
+    const result = await pool.query(
+      `SELECT posts.id, posts.content, posts.image_url, posts.created_at,
+              users.id AS author_id, users.username AS author_username, users.avatar_url AS author_avatar,
+              users.is_verified AS author_is_verified,
+              COALESCE(likes_count.count, 0) AS likes_count,
+              COALESCE(comments_count.count, 0) AS comments_count
+       FROM posts
+       JOIN users ON users.id = posts.user_id
+       LEFT JOIN (
+         SELECT post_id, COUNT(*) AS count FROM likes GROUP BY post_id
+       ) likes_count ON likes_count.post_id = posts.id
+       LEFT JOIN (
+         SELECT post_id, COUNT(*) AS count FROM comments GROUP BY post_id
+       ) comments_count ON comments_count.post_id = posts.id
+       WHERE posts.user_id = $1
+          OR posts.user_id IN (SELECT following_id FROM follows WHERE follower_id = $1)
+       ORDER BY posts.created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [req.userId, limit, offset]
     );
 
     res.json(result.rows);
@@ -53,7 +100,8 @@ router.get('/:id', async (req, res) => {
   try {
     const postResult = await pool.query(
       `SELECT posts.id, posts.content, posts.image_url, posts.created_at,
-              users.id AS author_id, users.username AS author_username
+              users.id AS author_id, users.username AS author_username,
+              users.avatar_url AS author_avatar, users.is_verified AS author_is_verified
        FROM posts
        JOIN users ON users.id = posts.user_id
        WHERE posts.id = $1`,
