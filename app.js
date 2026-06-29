@@ -22,6 +22,7 @@ app.use('/api/posts/:postId/comments', commentsRoutes);
 app.use('/api/follows', followsRoutes);
 app.use('/api/messages', messagesRoutes);
 app.use('/api/users', usersRoutes);
+app.use('/api/posts', require('./routes/posts'));
 
 app.get('/', (req, res) => {
   res.json({ message: 'API réseau social en ligne' });
