@@ -216,4 +216,38 @@ router.get('/blocked-list', auth, async (req, res) => {
         res.status(500).send("Erreur serveur");
     }
 });
+// MISE À JOUR DES PARAMÈTRES (Pseudo, Bio, Avatar, Compte Privé + THÈME)
+router.put('/settings', auth, async (req, res) => {
+    const userId = req.user.id;
+    const { username, bio, avatar_url, is_private, theme_preference } = req.body; // <-- On ajoute theme_preference ici
+
+    try {
+        if (username) {
+            const usernameCheck = await pool.query('SELECT id FROM users WHERE username = $1 AND id <> $2', [username, userId]);
+            if (usernameCheck.rows.length > 0) return res.status(400).json({ error: "Ce nom d'utilisateur est déjà pris." });
+        }
+
+        const currentProfile = await pool.query('SELECT username, bio, avatar_url, is_private, theme_preference FROM users WHERE id = $1', [userId]);
+        const user = currentProfile.rows[0];
+
+        const newUsername = username !== undefined ? username : user.username;
+        const newBio = bio !== undefined ? bio : user.bio;
+        const newAvatarUrl = avatar_url !== undefined ? avatar_url : user.avatar_url;
+        const newIsPrivate = is_private !== undefined ? is_private : user.is_private;
+        const newTheme = theme_preference !== undefined ? theme_preference : user.theme_preference; // <-- Fallback
+
+        const updatedUser = await pool.query(
+            `UPDATE users 
+             SET username = $1, bio = $2, avatar_url = $3, is_private = $4, theme_preference = $5 
+             WHERE id = $6 
+             RETURNING id, username, bio, avatar_url, is_private, theme_preference`,
+            [newUsername, newBio, newAvatarUrl, newIsPrivate, newTheme, userId]
+        );
+
+        res.json({ message: "Paramètres mis à jour !", user: updatedUser.rows[0] });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send("Erreur serveur");
+    }
+});
 module.exports = router;
