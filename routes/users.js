@@ -130,6 +130,13 @@ router.post('/follow/:targetId', auth, async (req, res) => {
         console.error(err.message);
         res.status(500).send("Erreur serveur");
     }
+    // Déclencher la notification de follow (si accepté directement)
+if (initialStatus === 'accepted') {
+    await pool.query(
+        'INSERT INTO notifications (sender_id, receiver_id, type, target_id) VALUES ($1, $2, $3, $4)',
+        [followerId, targetId, 'follow', followerId]
+    );
+}
 });
 
 // 3. SUPPRIMER DÉFINITIVEMENT SON COMPTE

@@ -1,0 +1,42 @@
+const express = require('express');
+const router = express.Router();
+const pool = require('../db');
+const auth = require('../middleware/auth');
+
+// 1. RÉCUPÉRER TOUTES SES NOTIFICATIONS (Style onglet "Cœur" Instagram)
+router.get('/', auth, async (req, res) => {
+    const userId = req.user.id;
+
+    try {
+        const list = await pool.query(
+            `SELECT n.*, u.username as sender_name, u.avatar_url as sender_avatar
+             FROM notifications n
+             JOIN users u ON n.sender_id = u.id
+             WHERE n.receiver_id = $1
+             ORDER BY n.created_at DESC
+             LIMIT 50`, // On affiche les 50 dernières activités
+            [userId]
+        );
+        res.json(list.rows);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send("Erreur serveur lors du chargement des notifications");
+    }
+});
+
+// 2. MARQUER TOUTES LES NOTIFICATIONS COMME LUES (Quand on ouvre l'onglet)
+router.patch('/read-all', auth, async (req, res) => {
+    const userId = req.user.id;
+
+    try {
+        await pool.query(
+            'UPDATE notifications SET is_read = true WHERE receiver_id = $1 AND is_read = false',
+            [userId]
+        );
+        res.json({ message: "Notifications marquées comme lues." });
+    } catch (err) {
+        res.status(500).send("Erreur serveur");
+    }
+});
+
+module.exports = router;
