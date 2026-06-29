@@ -20,7 +20,7 @@ app.use('/api/posts', postsRoutes);
 app.use('/api/posts/:postId/like', likesRoutes);
 app.use('/api/posts/:postId/comments', commentsRoutes);
 app.use('/api/follows', followsRoutes);
-app.use('/api/messages', messagesRoutes);
+app.use('/api/messages', require('./routes/messages'));
 app.use('/api/users', usersRoutes);
 app.use('/api/posts', require('./routes/posts'));
 app.use('/api/users', require('./routes/users'));

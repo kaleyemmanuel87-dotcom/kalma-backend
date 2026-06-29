@@ -1,61 +1,89 @@
 const express = require('express');
-const pool = require('../db');
-const requireAuth = require('../middleware/auth');
-
 const router = express.Router();
+const pool = require('../db');
+const auth = require('../middleware/auth');
 
-// Envoyer un message à un utilisateur
-router.post('/:userId', requireAuth, async (req, res) => {
-  const { userId } = req.params;
-  const { content } = req.body;
+// 1. ENVOYER UN MESSAGE (1-à-1 ou dans un groupe)
+router.post('/send', auth, async (req, res) => {
+    const senderId = req.user.id;
+    // receiver_id pour un DM classique, group_id si c'est un message de groupe
+    const { receiver_id, group_id, content } = req.body; 
 
-  if (!content) {
-    return res.status(400).json({ error: 'Le contenu du message est requis' });
-  }
+    if (!content || content.trim() === "") {
+        return res.status(400).json({ error: "Le contenu du message ne peut pas être vide." });
+    }
 
-  if (userId === req.userId) {
-    return res.status(400).json({ error: "Tu ne peux pas t'envoyer un message à toi-même" });
-  }
+    try {
+        // Si c'est un message de groupe, on pourrait plus tard vérifier si l'utilisateur fait partie du groupe
+        const newMessage = await pool.query(
+            `INSERT INTO messages (sender_id, receiver_id, content, created_at) 
+             VALUES ($1, $2, $3, now()) 
+             RETURNING *`,
+            [senderId, receiver_id || null, content]
+        );
 
-  try {
-    const result = await pool.query(
-      `INSERT INTO messages (sender_id, receiver_id, content)
-       VALUES ($1, $2, $3)
-       RETURNING id, sender_id, receiver_id, content, is_read, created_at`,
-      [req.userId, userId, content]
-    );
-    res.status(201).json(result.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Erreur serveur' });
-  }
+        res.json({ message: "Message envoyé !", data: newMessage.rows[0] });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send("Erreur serveur lors de l'envoi du message");
+    }
 });
 
-// Récupérer la conversation avec un utilisateur (et marquer les messages reçus comme lus)
-router.get('/:userId', requireAuth, async (req, res) => {
-  const { userId } = req.params;
+// 2. RÉCUPÉRER L'HISTORIQUE DE DISCUSSION ENTRE DEUX UTILISATEURS (DM 1-à-1)
+router.get('/conversation/:otherUserId', auth, async (req, res) => {
+    const userId = req.user.id;
+    const { otherUserId } = req.params;
 
-  try {
-    const result = await pool.query(
-      `SELECT id, sender_id, receiver_id, content, is_read, created_at
-       FROM messages
-       WHERE (sender_id = $1 AND receiver_id = $2)
-          OR (sender_id = $2 AND receiver_id = $1)
-       ORDER BY created_at ASC`,
-      [req.userId, userId]
-    );
+    try {
+        // Récupère tous les messages envoyés par userId à otherUserId ET vice-versa, triés par date
+        const history = await pool.query(
+            `SELECT m.*, u.username as sender_name 
+             FROM messages m
+             JOIN users u ON m.sender_id = u.id
+             WHERE (m.sender_id = $1 AND m.receiver_id = $2)
+                OR (m.sender_id = $2 AND m.receiver_id = $1)
+             ORDER BY m.created_at ASC`,
+            [userId, otherUserId]
+        );
 
-    await pool.query(
-      `UPDATE messages SET is_read = true
-       WHERE sender_id = $1 AND receiver_id = $2 AND is_read = false`,
-      [userId, req.userId]
-    );
+        // On marque automatiquement les messages reçus comme "lus" (is_read = true)
+        await pool.query(
+            `UPDATE messages SET is_read = true 
+             WHERE sender_id = $1 AND receiver_id = $2 AND is_read = false`,
+            [otherUserId, userId]
+        );
 
-    res.json(result.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Erreur serveur' });
-  }
+        res.json(history.rows);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send("Erreur serveur lors de la récupération de la conversation");
+    }
+});
+
+// 3. SUPPRIMER UN MESSAGE (Pour tout le monde - "Unsend" comme sur Insta)
+router.delete('/:messageId', auth, async (req, res) => {
+    const userId = req.user.id;
+    const { messageId } = req.params;
+
+    try {
+        // On vérifie d'abord si le message existe et s'il a bien été envoyé par l'utilisateur connecté
+        const messageCheck = await pool.query('SELECT sender_id FROM messages WHERE id = $1', [messageId]);
+
+        if (messageCheck.rows.length === 0) {
+            return res.status(404).json({ error: "Message introuvable." });
+        }
+
+        if (messageCheck.rows[0].sender_id !== userId) {
+            return res.status(403).json({ error: "Action non autorisée. Vous ne pouvez supprimer que vos propres messages." });
+        }
+
+        // Suppression du message
+        await pool.query('DELETE FROM messages WHERE id = $1', [messageId]);
+        res.json({ message: "Message supprimé / annulé avec succès !" });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send("Erreur serveur lors de la suppression");
+    }
 });
 
 module.exports = router;
