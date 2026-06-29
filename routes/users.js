@@ -62,5 +62,90 @@ router.get('/profile/:username', async (req, res) => {
         res.status(500).send("Erreur serveur lors du chargement du profil");
     }
 });
+// 1. CHANGER LA CONFIDENTIALITÉ DU COMPTE (Passer en privé ou public)
+router.patch('/privacy', auth, async (req, res) => {
+    const { is_private } = req.body; // true ou false
+    const userId = req.user.id;
+
+    try {
+        await pool.query(
+            'UPDATE users SET is_private = $1 WHERE id = $2',
+            [is_private, userId]
+        );
+        res.json({ message: `Compte passé en ${is_private ? 'privé' : 'public'}.` });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send("Erreur serveur");
+    }
+});
+
+// 2. S'ABONNER / SE DÉSABONNER / DEMANDE EN ATTENTE
+router.post('/follow/:targetId', auth, async (req, res) => {
+    const followerId = req.user.id; // Toi
+    const { targetId } = req.params; // La personne que tu veux suivre
+
+    if (followerId === targetId) {
+        return res.status(400).json({ error: "Vous ne pouvez pas vous suivre vous-même" });
+    }
+
+    try {
+        // Vérifier si la cible est un compte privé
+        const targetCheck = await pool.query('SELECT is_private FROM users WHERE id = $1', [targetId]);
+        if (targetCheck.rows.length === 0) {
+            return res.status(404).json({ error: "Utilisateur introuvable" });
+        }
+
+        const isPrivate = targetCheck.rows[0].is_private;
+
+        // Vérifier si on suit déjà
+        const followCheck = await pool.query(
+            'SELECT * FROM follows WHERE follower_id = $1 AND following_id = $2',
+            [followerId, targetId]
+        );
+
+        if (followCheck.rows.length > 0) {
+            // Si on suit déjà, l'action "Re-cliquer" signifie : SE DÉSABONNER
+            await pool.query(
+                'DELETE FROM follows WHERE follower_id = $1 AND following_id = $2',
+                [followerId, targetId]
+            );
+            return res.json({ status: "unfollowed", message: "Vous vous êtes désabonné." });
+        }
+
+        // Sinon, on crée la relation
+        // Si le compte est privé -> statut 'pending' (en attente), si public -> 'accepted'
+        const initialStatus = isPrivate ? 'pending' : 'accepted';
+        
+        await pool.query(
+            'INSERT INTO follows (follower_id, following_id, status) VALUES ($1, $2, $3)',
+            [followerId, targetId, initialStatus]
+        );
+
+        res.json({ 
+            status: initialStatus, 
+            message: isPrivate ? "Demande d'abonnement envoyée." : "Vous suivez maintenant cet utilisateur." 
+        });
+
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send("Erreur serveur");
+    }
+});
+
+// 3. SUPPRIMER DÉFINITIVEMENT SON COMPTE
+router.delete('/delete-account', auth, async (req, res) => {
+    const userId = req.user.id;
+
+    try {
+        // La magie du ON DELETE CASCADE configuré au début va supprimer automatiquement
+        // tous les posts, commentaires, likes, messages et abonnements de cet id.
+        await pool.query('DELETE FROM users WHERE id = $1', [userId]);
+        
+        res.json({ message: "Votre compte et toutes vos données ont été définitivement supprimés." });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send("Erreur serveur lors de la suppression du compte");
+    }
+});
 
 module.exports = router;
