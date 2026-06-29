@@ -147,5 +147,66 @@ router.delete('/delete-account', auth, async (req, res) => {
         res.status(500).send("Erreur serveur lors de la suppression du compte");
     }
 });
+// 5. BLOQUER OU DÉBLOQUER UN UTILISATEUR
+router.post('/block/:targetId', auth, async (req, res) => {
+    const blockerId = req.user.id; // Toi
+    const { targetId } = req.params; // La personne à bloquer
 
+    if (blockerId === targetId) {
+        return res.status(400).json({ error: "Vous ne pouvez pas vous bloquer vous-même." });
+    }
+
+    try {
+        // Vérifier si le blocage existe déjà
+        const blockCheck = await pool.query(
+            'SELECT * FROM blocks WHERE blocker_id = $1 AND blocked_id = $2',
+            [blockerId, targetId]
+        );
+
+        if (blockCheck.rows.length > 0) {
+            // S'il est déjà bloqué, l'action inverse : DÉBLOQUER
+            await pool.query(
+                'DELETE FROM blocks WHERE blocker_id = $1 AND blocked_id = $2',
+                [blockerId, targetId]
+            );
+            return res.json({ status: "unblocked", message: "Utilisateur débloqué." });
+        }
+
+        // Sinon, on le bloque
+        await pool.query(
+            'INSERT INTO blocks (blocker_id, blocked_id) VALUES ($1, $2)',
+            [blockerId, targetId]
+        );
+
+        // 💡 BONUS STYLE INSTAGRAM : Quand on bloque quelqu'un, on le supprime automatiquement de nos abonnés/abonnements mutuels
+        await pool.query(
+            `DELETE FROM follows 
+             WHERE (follower_id = $1 AND following_id = $2) 
+                OR (follower_id = $2 AND following_id = $1)`,
+            [blockerId, targetId]
+        );
+
+        res.json({ status: "blocked", message: "Utilisateur bloqué et abonnements annulés." });
+
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send("Erreur serveur lors du blocage");
+    }
+});
+
+// 6. RÉCUPÉRER LA LISTE DES PERSONNES QU'ON A BLOQUÉES (Pour la page Paramètres > Comptes bloqués)
+router.get('/blocked-list', auth, async (req, res) => {
+    try {
+        const list = await pool.query(
+            `SELECT b.blocked_id, u.username, u.avatar_url 
+             FROM blocks b
+             JOIN users u ON b.blocked_id = u.id
+             WHERE b.blocker_id = $1`,
+            [req.user.id]
+        );
+        res.json(list.rows);
+    } catch (err) {
+        res.status(500).send("Erreur serveur");
+    }
+});
 module.exports = router;

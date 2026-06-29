@@ -27,6 +27,20 @@ router.post('/send', auth, async (req, res) => {
         console.error(err.message);
         res.status(500).send("Erreur serveur lors de l'envoi du message");
     }
+    // --- ZONE DE SÉCURITÉ : VÉRIFICATION DES BLOCAGES ---
+if (receiver_id) {
+    const blockCheck = await pool.query(
+        `SELECT * FROM blocks 
+         WHERE (blocker_id = $1 AND blocked_id = $2) 
+            OR (blocker_id = $2 AND blocked_id = $1)`,
+        [senderId, receiver_id]
+    );
+
+    if (blockCheck.rows.length > 0) {
+        return res.status(403).json({ error: "Envoi impossible. Vous avez bloqué cet utilisateur ou vous avez été bloqué." });
+    }
+}
+// -----------------------------------------------------
 });
 
 // 2. RÉCUPÉRER L'HISTORIQUE DE DISCUSSION ENTRE DEUX UTILISATEURS (DM 1-à-1)
