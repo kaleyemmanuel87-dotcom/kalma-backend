@@ -65,5 +65,91 @@ router.delete('/:id', auth, async (req, res) => {
         res.status(500).send("Erreur serveur lors de la suppression");
     }
 });
+// 4. CRÉER UN POST MULTI-MÉDIAS (CARROUSEL STYLE INSTAGRAM)
+router.post('/carousel', auth, async (req, res) => {
+    const userId = req.user.id;
+    const { content, medias } = req.body; // medias doit être un tableau ex: [{url: '...', type: 'image'}, {url: '...', type: 'video'}]
+
+    if (!medias || !Array.isArray(medias) || medias.length === 0) {
+        return res.status(400).json({ error: "Un post carrousel nécessite au moins un média." });
+    }
+
+    try {
+        // 1. Créer le post principal
+        const mainPost = await pool.query(
+            'INSERT INTO posts (user_id, content) VALUES ($1, $2) RETURNING *',
+            [userId, content || '']
+        );
+        const postId = mainPost.rows[0].id;
+
+        // 2. Insérer tous les médias en boucle avec leur position
+        const mediaPromises = medias.map((media, index) => {
+            return pool.query(
+                'INSERT INTO post_medias (post_id, media_url, media_type, position) VALUES ($1, $2, $3, $4)',
+                [postId, media.url, media.type || 'image', index]
+            );
+        });
+        await Promise.all(mediaPromises);
+
+        res.json({ message: "Post carrousel publié avec succès !", postId });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send("Erreur serveur lors de la création du carrousel");
+    }
+});
+// 5. ENREGISTRER OU RETIRER UN POST DES SIGNETS (BOOKMARKS)
+router.post('/:id/bookmark', auth, async (req, res) => {
+    const userId = req.user.id;
+    const { id } = req.params; // L'id du post à sauvegarder
+
+    try {
+        // Vérifier si le post est déjà enregistré
+        const checkSave = await pool.query(
+            'SELECT * FROM saved_posts WHERE user_id = $1 AND post_id = $2',
+            [userId, id]
+        );
+
+        if (checkSave.rows.length > 0) {
+            // Déjà enregistré -> On le retire (Unbookmark)
+            await pool.query(
+                'DELETE FROM saved_posts WHERE user_id = $1 AND post_id = $2',
+                [userId, id]
+            );
+            return res.json({ status: "unsaved", message: "Publication retirée de vos enregistrements." });
+        }
+
+        // Sinon, on l'enregistre
+        await pool.query(
+            'INSERT INTO saved_posts (user_id, post_id) VALUES ($1, $2)',
+            [userId, id]
+        );
+        res.json({ status: "saved", message: "Publication enregistrée dans vos signets !" });
+
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send("Erreur serveur");
+    }
+});
+
+// 6. RÉCUPÉRER LA LISTE DE NOS POSTS ENREGISTRÉS (Pour l'onglet privé du profil)
+router.get('/my-bookmarks', auth, async (req, res) => {
+    const userId = req.user.id;
+
+    try {
+        const savedList = await pool.query(
+            `SELECT p.*, u.username, u.avatar_url 
+             FROM saved_posts s
+             JOIN posts p ON s.post_id = p.id
+             JOIN users u ON p.user_id = u.id
+             WHERE s.user_id = $1
+             ORDER BY s.saved_at DESC`,
+            [userId]
+        );
+        res.json(savedList.rows);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send("Erreur serveur");
+    }
+});
 
 module.exports = router;
