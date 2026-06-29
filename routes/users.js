@@ -1,89 +1,66 @@
 const express = require('express');
-const pool = require('../db');
-const requireAuth = require('../middleware/auth');
-const requireAdmin = require('../middleware/admin');
-
 const router = express.Router();
+const pool = require('../db');
+const auth = require('../middleware/auth'); // Pour savoir si le visiteur est abonné ou non
 
-// Profil public d'un utilisateur
-router.get('/:userId', async (req, res) => {
-  const { userId } = req.params;
+// RÉCUPÉRER UN PROFIL COMPLET (Style Insta/TikTok)
+router.get('/profile/:username', async (req, res) => {
+    const { username } = req.params;
 
-  try {
-    const result = await pool.query(
-      `SELECT id, username, bio, avatar_url, is_verified, created_at
-       FROM users
-       WHERE id = $1`,
-      [userId]
-    );
+    try {
+        // 1. Récupérer les infos de base de l'utilisateur et son statut privé
+        const userQuery = await pool.query(
+            'SELECT id, username, bio, avatar_url, is_private, created_at FROM users WHERE username = $1',
+            [username]
+        );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Utilisateur introuvable' });
+        if (userQuery.rows.length === 0) {
+            return res.status(404).json({ error: "Utilisateur introuvable" });
+        }
+
+        const user = userQuery.rows[0];
+
+        // 2. Compter les Followers (Abonnés)
+        const followersQuery = await pool.query(
+            "SELECT COUNT(*) FROM follows WHERE following_id = $1 AND status = 'accepted'",
+            [user.id]
+        );
+
+        // 3. Compter les Followings (Abonnements)
+        const followingQuery = await pool.query(
+            "SELECT COUNT(*) FROM follows WHERE follower_id = $1 AND status = 'accepted'",
+            [user.id]
+        );
+
+        // 4. Compter le nombre total de J'aime (Likes) reçus sur tous ses posts (Très style TikTok !)
+        const totalLikesQuery = await pool.query(
+            `SELECT COUNT(l.id) FROM likes l 
+             JOIN posts p ON l.post_id = p.id 
+             WHERE p.user_id = $1`,
+            [user.id]
+        );
+
+        // Renvoie l'ensemble des données prêtes pour ton design d'interface
+        res.json({
+            user: {
+                id: user.id,
+                username: user.username,
+                bio: user.bio,
+                avatar_url: user.avatar_url,
+                is_private: user.is_private,
+                created_at: user.created_at
+            },
+            stats: {
+                followers_count: parseInt(followersQuery.rows[0].count),
+                following_count: parseInt(followingQuery.rows[0].count),
+                total_likes_received: parseInt(totalLikesQuery.rows[0].count)
+            }
+        });
+
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send("Erreur serveur lors du chargement du profil");
     }
-
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Erreur serveur' });
-  }
-});
-
-// Posts publiés par un utilisateur précis (vue "profil", comme la grille Instagram)
-router.get('/:userId/posts', async (req, res) => {
-  const { userId } = req.params;
-  const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
-  const offset = parseInt(req.query.offset, 10) || 0;
-
-  try {
-    const result = await pool.query(
-      `SELECT posts.id, posts.content, posts.image_url, posts.created_at,
-              COALESCE(likes_count.count, 0) AS likes_count,
-              COALESCE(comments_count.count, 0) AS comments_count
-       FROM posts
-       LEFT JOIN (
-         SELECT post_id, COUNT(*) AS count FROM likes GROUP BY post_id
-       ) likes_count ON likes_count.post_id = posts.id
-       LEFT JOIN (
-         SELECT post_id, COUNT(*) AS count FROM comments GROUP BY post_id
-       ) comments_count ON comments_count.post_id = posts.id
-       WHERE posts.user_id = $1
-       ORDER BY posts.created_at DESC
-       LIMIT $2 OFFSET $3`,
-      [userId, limit, offset]
-    );
-
-    res.json(result.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Erreur serveur' });
-  }
-});
-
-// Certifier (ou retirer la certification d'un) compte - réservé aux admins
-router.patch('/:userId/verify', requireAuth, requireAdmin, async (req, res) => {
-  const { userId } = req.params;
-  const { verified } = req.body;
-
-  if (typeof verified !== 'boolean') {
-    return res.status(400).json({ error: 'Le champ "verified" doit être true ou false' });
-  }
-
-  try {
-    const result = await pool.query(
-      `UPDATE users SET is_verified = $1 WHERE id = $2
-       RETURNING id, username, is_verified`,
-      [verified, userId]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Utilisateur introuvable' });
-    }
-
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Erreur serveur' });
-  }
 });
 
 module.exports = router;
