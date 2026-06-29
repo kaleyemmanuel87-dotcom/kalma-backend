@@ -24,6 +24,7 @@ app.use('/api/messages', require('./routes/messages'));
 app.use('/api/users', usersRoutes);
 app.use('/api/posts', require('./routes/posts'));
 app.use('/api/users', require('./routes/users'));
+app.use('/api/stories', require('./routes/stories'));
 
 app.get('/', (req, res) => {
   res.json({ message: 'API réseau social en ligne' });
