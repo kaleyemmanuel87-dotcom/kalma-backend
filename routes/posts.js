@@ -29,7 +29,7 @@ router.get('/user/:userId', async (req, res) => {
     }
 });
 
--- 2. INCREMENTER LES VUES (À appeler dès qu'un utilisateur clique/voit un post)
+//-- 2. INCREMENTER LES VUES (À appeler dès qu'un utilisateur clique/voit un post)
 router.patch('/:id/view', async (req, res) => {
     try {
         const { id } = req.params;
