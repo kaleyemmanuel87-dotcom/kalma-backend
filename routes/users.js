@@ -223,9 +223,14 @@ router.put('/settings', auth, async (req, res) => {
 
     try {
         if (username) {
-            // Correction : Utilisation de !== au lieu de <> pour le JavaScript
-            const usernameCheck = await pool.query('SELECT id FROM users WHERE username = $1 AND id !== $2', [username, userId]);
-            if (usernameCheck.rows.length > 0) return res.status(400).json({ error: "Ce nom d'utilisateur est déjà pris." });
+            // En SQL, on utilise != pour dire "différent de"
+            const usernameCheck = await pool.query(
+                'SELECT id FROM users WHERE username = $1 AND id != $2', 
+                [username, userId]
+            );
+            if (usernameCheck.rows.length > 0) {
+                return res.status(400).json({ error: "Ce nom d'utilisateur est déjà pris." });
+            }
         }
 
         const currentProfile = await pool.query('SELECT username, bio, avatar_url, is_private, theme_preference FROM users WHERE id = $1', [userId]);
