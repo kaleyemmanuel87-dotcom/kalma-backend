@@ -221,9 +221,10 @@ router.put('/settings', auth, async (req, res) => {
     const userId = req.user.id;
     const { username, bio, avatar_url, is_private, theme_preference } = req.body;
 
-    try { // <-- Le mot-clé "try" manquant était ici !
+    try {
         if (username) {
-            const usernameCheck = await pool.query('SELECT id FROM users WHERE username = $1 AND id <> $2', [userId, username]); // Correction inversion des paramètres
+            // Correction : Utilisation de !== au lieu de <> pour le JavaScript
+            const usernameCheck = await pool.query('SELECT id FROM users WHERE username = $1 AND id !== $2', [username, userId]);
             if (usernameCheck.rows.length > 0) return res.status(400).json({ error: "Ce nom d'utilisateur est déjà pris." });
         }
 
