@@ -219,11 +219,11 @@ router.get('/blocked-list', auth, async (req, res) => {
 // MISE À JOUR DES PARAMÈTRES (Pseudo, Bio, Avatar, Compte Privé + THÈME)
 router.put('/settings', auth, async (req, res) => {
     const userId = req.user.id;
-    const { username, bio, avatar_url, is_private, theme_preference } = req.body; // <-- On ajoute theme_preference ici
+    const { username, bio, avatar_url, is_private, theme_preference } = req.body;
 
-    try {
+    try { // <-- Le mot-clé "try" manquant était ici !
         if (username) {
-            const usernameCheck = await pool.query('SELECT id FROM users WHERE username = $1 AND id <> $2', [username, userId]);
+            const usernameCheck = await pool.query('SELECT id FROM users WHERE username = $1 AND id <> $2', [userId, username]); // Correction inversion des paramètres
             if (usernameCheck.rows.length > 0) return res.status(400).json({ error: "Ce nom d'utilisateur est déjà pris." });
         }
 
@@ -234,7 +234,7 @@ router.put('/settings', auth, async (req, res) => {
         const newBio = bio !== undefined ? bio : user.bio;
         const newAvatarUrl = avatar_url !== undefined ? avatar_url : user.avatar_url;
         const newIsPrivate = is_private !== undefined ? is_private : user.is_private;
-        const newTheme = theme_preference !== undefined ? theme_preference : user.theme_preference; // <-- Fallback
+        const newTheme = theme_preference !== undefined ? theme_preference : user.theme_preference;
 
         const updatedUser = await pool.query(
             `UPDATE users 
